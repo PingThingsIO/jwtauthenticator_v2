@@ -30,6 +30,9 @@ class JSONWebTokenLoginHandler(BaseHandler):
         algorithms = self.authenticator.algorithms
 
         username_claim_field = self.authenticator.username_claim_field
+        groups_claim_field = self.authenticator.groups_claim_field
+        admin_groups = self.authenticator.admin_groups
+        claims_prefix = self.authenticator.claims_prefix
         extract_username = self.authenticator.extract_username
         audience = self.authenticator.expected_audience
 
@@ -73,9 +76,16 @@ class JSONWebTokenLoginHandler(BaseHandler):
                 return self.auth_failed(auth_url)
         except jwt.exceptions.InvalidTokenError:
             return self.auth_failed(auth_url)
+        
+        if claims_prefix:
+            claims = claims[claims_prefix]
 
         username = self.retrieve_username(claims, username_claim_field, extract_username=extract_username)
-        user = await self.auth_to_user({'name': username})
+        groups = self.retrieve_groups(claims, groups_claim_field)
+
+        admin = any(group in groups for group in admin_groups)
+
+        user = await self.auth_to_user({'name': username, 'admin': admin})
         self.set_login_cookie(user)
 
         self.redirect(_url)
@@ -108,6 +118,11 @@ class JSONWebTokenLoginHandler(BaseHandler):
             if "@" in username:
                 return username.split("@")[0]
         return username
+    
+    @staticmethod
+    def retrieve_groups(claims, groups_claim_field):
+        groups = claims[groups_claim_field]
+        return groups
 
 
 class JSONWebTokenAuthenticator(Authenticator):
@@ -158,6 +173,29 @@ class JSONWebTokenAuthenticator(Authenticator):
         help="""
         The field in the claims that contains the user name. It can be either a straight username,
         of an email/userPrincipalName.
+        """
+    )
+
+    groups_claim_field = Unicode(
+        default_value='groups',
+        config=True,
+        help="""
+        The field in the claims that contains the user's groups.
+        """
+    )
+
+    admin_groups = List(
+        default_value=['admin'],
+        config=True,
+        help="""
+        The groups that should be consider administrative users.
+        """
+    )
+
+    claims_prefix = Unicode(
+        config=True,
+        help="""
+        The attribute in the JWT token to extract the claims from.
         """
     )
 
